@@ -3,6 +3,29 @@ const router = express.Router();
 const { body, param } = require('express-validator');
 const booksController = require('../controllers/booksController');
 
+// Import auth middleware (optional for Week 3, required for Week 4)
+let isAuthenticated;
+try {
+  const authMiddleware = require('../middleware/auth');
+  isAuthenticated = authMiddleware.isAuthenticated;
+  console.log('✅ Auth middleware loaded');
+} catch (error) {
+  console.log('⚠️  Auth middleware not found, using demo mode');
+  // Create demo auth middleware for Week 3
+  isAuthenticated = (req, res, next) => {
+    // For Week 3: Allow all requests
+    // For Week 4: Check req.user or req.session
+    if (process.env.REQUIRE_AUTH === 'true' && !req.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        message: 'Please log in to access this endpoint'
+      });
+    }
+    next();
+  };
+}
+
 // Validation middleware
 const validateBook = [
   body('title').notEmpty().withMessage('Title is required').trim().isLength({ min: 2 }),
@@ -14,7 +37,13 @@ const validateBook = [
   body('pageCount').isInt({ min: 1 }),
   body('language').optional().trim(),
   body('description').optional().isLength({ max: 1000 }),
-  body('coverImageUrl').optional().isURL(),
+  // FIXED: Allow relative URLs starting with / and empty values
+  body('coverImageUrl').optional().custom(value => {
+    if (!value || value === '') return true; // Allow empty
+    if (value.startsWith('/')) return true; // Allow relative URLs
+    if (value.startsWith('http://') || value.startsWith('https://')) return true; // Allow absolute URLs
+    throw new Error('coverImageUrl must be empty, start with /, or be a valid URL');
+  }),
   body('availableCopies').isInt({ min: 0 })
 ];
 
@@ -22,15 +51,18 @@ const validateObjectId = [
   param('id').isMongoId().withMessage('Invalid book ID format')
 ];
 
+// Routes
+
 /**
  * @swagger
  * /books:
  *   get:
  *     summary: Get all books
  *     tags: [Books]
+ *     description: Get all books. If authentication is required, only returns user's books.
  *     responses:
  *       200:
- *         description: List of all books
+ *         description: List of books
  *       500:
  *         description: Server error
  */
@@ -64,6 +96,8 @@ router.get('/:id', validateObjectId, booksController.getBookById);
  *   post:
  *     summary: Create a new book
  *     tags: [Books]
+ *     security:
+ *       - cookieAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -116,8 +150,10 @@ router.get('/:id', validateObjectId, booksController.getBookById);
  *         description: Book created successfully
  *       400:
  *         description: Validation error
+ *       401:
+ *         description: Authentication required (Week 4)
  */
-router.post('/', validateBook, booksController.createBook);
+router.post('/', isAuthenticated, validateBook, booksController.createBook);
 
 /**
  * @swagger
@@ -125,6 +161,8 @@ router.post('/', validateBook, booksController.createBook);
  *   put:
  *     summary: Update a book
  *     tags: [Books]
+ *     security:
+ *       - cookieAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -144,8 +182,10 @@ router.post('/', validateBook, booksController.createBook);
  *         description: Book not found
  *       400:
  *         description: Validation error
+ *       401:
+ *         description: Authentication required (Week 4)
  */
-router.put('/:id', [...validateObjectId, ...validateBook], booksController.updateBook);
+router.put('/:id', isAuthenticated, [...validateObjectId, ...validateBook], booksController.updateBook);
 
 /**
  * @swagger
@@ -153,6 +193,8 @@ router.put('/:id', [...validateObjectId, ...validateBook], booksController.updat
  *   delete:
  *     summary: Delete a book
  *     tags: [Books]
+ *     security:
+ *       - cookieAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -164,7 +206,39 @@ router.put('/:id', [...validateObjectId, ...validateBook], booksController.updat
  *         description: Book deleted
  *       404:
  *         description: Book not found
+ *       401:
+ *         description: Authentication required (Week 4)
  */
-router.delete('/:id', validateObjectId, booksController.deleteBook);
+router.delete('/:id', isAuthenticated, validateObjectId, booksController.deleteBook);
+
+/**
+ * @swagger
+ * /books/my-books:
+ *   get:
+ *     summary: Get current user's books
+ *     tags: [Books]
+ *     security:
+ *       - cookieAuth: []
+ *     responses:
+ *       200:
+ *         description: User's books
+ *       401:
+ *         description: Authentication required
+ */
+router.get('/my-books', isAuthenticated, (req, res) => {
+  // For Week 3: Return all books (demo mode)
+  // For Week 4: Use booksController.getUserBooks
+  if (process.env.REQUIRE_AUTH === 'true') {
+    // Call the controller method for Week 4
+    return booksController.getAllBooks(req, res);
+  }
+  
+  // Week 3: Return success with demo message
+  res.json({
+    success: true,
+    message: 'In Week 4, this endpoint will show only your books',
+    note: 'Currently showing all books (Week 3 mode)'
+  });
+});
 
 module.exports = router;

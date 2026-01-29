@@ -12,6 +12,16 @@ const bookSchema = new mongoose.Schema({
     ref: 'Author',
     required: [true, 'Author is required']
   },
+  // Smart user field - handles both authenticated and unauthenticated users
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: function() {
+      // Only require user if authentication is enabled (Week 4+)
+      return process.env.REQUIRE_AUTH === 'true';
+    },
+    default: null
+  },
   isbn: {
     type: String,
     required: [true, 'ISBN is required'],
@@ -57,17 +67,12 @@ const bookSchema = new mongoose.Schema({
     required: [true, 'Available copies is required'],
     min: [0, 'Available copies cannot be negative'],
     default: 1
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now
   }
 }, {
   timestamps: true
 });
+
+// Index for better performance with user queries
+bookSchema.index({ user: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Book', bookSchema);
