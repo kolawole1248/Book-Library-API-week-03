@@ -7,11 +7,9 @@ passport.use(new GitHubStrategy({
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
-      // Check if user exists by GitHub ID
       let user = await User.findOne({ githubId: profile.id });
       
       if (!user) {
-        // Create new user
         user = await User.create({
           githubId: profile.id,
           displayName: profile.displayName || profile.username,

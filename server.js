@@ -60,7 +60,7 @@ if (!MONGODB_URI) {
   console.log('✅ MONGODB_URI found in environment');
 }
 
-// Connect to MongoDB
+// Connecting to MongoDB
 mongoose.connect(MONGODB_URI)
   .then(() => {
     console.log('✅ MongoDB connected successfully');

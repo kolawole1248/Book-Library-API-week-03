@@ -1,7 +1,7 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 
-// Check if authentication is required
+// i check if authentication is required
 const isAuthRequired = process.env.REQUIRE_AUTH === 'true';
 const currentHost = process.env.RENDER_EXTERNAL_URL 
   ? new URL(process.env.RENDER_EXTERNAL_URL).host 
@@ -266,7 +266,7 @@ function setupSwagger(app) {
     }];
   }
   
-  // Add authentication note
+  // Adding authentication note
   if (isAuthRequired) {
     swaggerSpec.info.description += '\n\n🔒 **Authentication is REQUIRED** for POST, PUT, DELETE operations.';
   } else {
