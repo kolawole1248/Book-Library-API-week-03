@@ -1,13 +1,25 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
+const path = require('path');
 
-// i check if authentication is required
+// Check if authentication is required
 const isAuthRequired = process.env.REQUIRE_AUTH === 'true';
-const currentHost = process.env.RENDER_EXTERNAL_URL 
-  ? new URL(process.env.RENDER_EXTERNAL_URL).host 
-  : 'localhost:3000';
-const currentScheme = process.env.NODE_ENV === 'production' ? 'https' : 'http';
 
+// Determine server URL
+function getServerUrl() {
+  if (process.env.RENDER_EXTERNAL_URL) {
+    return process.env.RENDER_EXTERNAL_URL;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return 'https://book-library-api-week-03.onrender.com';
+  }
+  return 'http://localhost:3000';
+}
+
+const serverUrl = getServerUrl();
+console.log(`📊 Swagger server URL set to: ${serverUrl}`);
+
+// Create options with explicit servers configuration
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -24,7 +36,7 @@ const options = {
     },
     servers: [
       {
-        url: `${currentScheme}://${currentHost}`,
+        url: serverUrl,
         description: process.env.NODE_ENV === 'production' ? 'Production server' : 'Development server'
       }
     ],
@@ -250,44 +262,57 @@ const options = {
       }
     }
   },
-  apis: ['./routes/*.js', './server.js'] // Include server.js for demo auth endpoints
+  apis: ['./routes/*.js', './server.js']
 };
 
 const swaggerSpec = swaggerJsdoc(options);
 
 // Dynamically update Swagger based on environment
 function setupSwagger(app) {
-  // Update server URL dynamically
-  if (process.env.RENDER_EXTERNAL_URL) {
-    const renderUrl = new URL(process.env.RENDER_EXTERNAL_URL);
-    swaggerSpec.servers = [{
-      url: renderUrl.origin,
-      description: 'Production server (Render)'
-    }];
-  }
+  // Add explicit route for swagger.json
+  app.get('/swagger.json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
   
-  // Adding authentication note
-  if (isAuthRequired) {
-    swaggerSpec.info.description += '\n\n🔒 **Authentication is REQUIRED** for POST, PUT, DELETE operations.';
-  } else {
-    swaggerSpec.info.description += '\n\n⚠️ **Demo Mode**: Authentication is optional for Week 3. Set REQUIRE_AUTH=true for Week 4.';
-  }
-  
+  // Setup Swagger UI with explicit configuration
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    explorer: true,
     swaggerOptions: {
+      url: '/swagger.json',
       persistAuthorization: true,
-      tryItOutEnabled: true
+      tryItOutEnabled: true,
+      displayRequestDuration: true,
+      defaultModelsExpandDepth: 3,
+      defaultModelExpandDepth: 3
     },
     customCss: `
       .swagger-ui .topbar { display: none }
-      .auth-wrapper { margin: 20px 0; padding: 10px; background: #f5f5f5; border-radius: 4px; }
-      .auth-note { color: ${isAuthRequired ? '#d32f2f' : '#ff9800'}; font-weight: bold; }
+      .information-container { display: none }
+      .auth-wrapper { 
+        margin: 20px 0; 
+        padding: 15px; 
+        background: ${isAuthRequired ? '#ffebee' : '#fff3e0'}; 
+        border-radius: 4px; 
+        border-left: 4px solid ${isAuthRequired ? '#d32f2f' : '#ff9800'};
+      }
+      .auth-note { 
+        color: ${isAuthRequired ? '#d32f2f' : '#ff9800'}; 
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
     `,
     customSiteTitle: "Book Library API Documentation",
-    customfavIcon: "/favicon.ico"
+    customCssUrl: 'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.3.1/swagger-ui.min.css'
   }));
   
-  console.log(`📚 Swagger UI configured with authentication: ${isAuthRequired ? 'REQUIRED' : 'OPTIONAL'}`);
+  // Also add a simple HTML fallback
+  app.get('/api-docs', (req, res) => {
+    res.redirect('/api-docs/');
+  });
+  
+  console.log(`📚 Swagger UI configured at ${serverUrl}/api-docs`);
+  console.log(`🔐 Authentication mode: ${isAuthRequired ? 'REQUIRED' : 'OPTIONAL'}`);
 }
 
 module.exports = setupSwagger;

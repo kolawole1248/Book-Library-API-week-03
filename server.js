@@ -1,4 +1,4 @@
-// server.js - UPDATED WITH OAUTH SESSION SUPPORT
+// server.js - UPDATED WITH CORS CONFIGURATION FOR SWAGGER
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -11,11 +11,85 @@ const app = express();
 // Import Swagger setup
 const setupSwagger = require('./swagger');
 
-// CORS configuration
-app.use(cors({
-  origin: true, // Allow all origins for testing
-  credentials: true // Allow cookies/sessions
-}));
+// ==================== CORS CONFIGURATION FOR SWAGGER ====================
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3000/api-docs',
+  'http://localhost:3001',
+  'https://book-library-api-week-03.onrender.com',
+  'https://book-library-api-week-04.onrender.com',
+  /\.onrender\.com$/  // Allow any Render subdomain
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) {
+      console.log('🔓 CORS: No origin header (direct request)');
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') {
+        return origin === allowed;
+      } else if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return false;
+    });
+    
+    if (isAllowed) {
+      console.log(`✅ CORS: Allowed origin - ${origin}`);
+      return callback(null, true);
+    } else {
+      console.log(`❌ CORS: Blocked origin - ${origin}`);
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // Allow cookies/sessions
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo-user', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400 // 24 hours
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests for all routes
+app.options('*', cors(corsOptions));
+
+// Additional CORS headers for Swagger UI
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Set CORS headers dynamically
+  if (origin && allowedOrigins.some(allowed => {
+    if (typeof allowed === 'string') return origin === allowed;
+    if (allowed instanceof RegExp) return allowed.test(origin);
+    return false;
+  })) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // Allow requests without Origin header (like direct API calls)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo-user, X-Requested-With, Accept');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Range, X-Content-Range');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
+
+// ==================== END CORS CONFIGURATION ====================
 
 // Body parsing middleware
 app.use(express.json());
@@ -29,7 +103,10 @@ app.use(session({
   store: MongoStore.create({
     mongoUrl: process.env.MONGODB_URI,
     ttl: 24 * 60 * 60, // Session TTL: 24 hours
-    autoRemove: 'native'
+    autoRemove: 'native',
+    crypto: {
+      secret: process.env.SESSION_SECRET || 'session-secret-123'
+    }
   }),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
@@ -61,7 +138,11 @@ if (!MONGODB_URI) {
 }
 
 // Connecting to MongoDB
-mongoose.connect(MONGODB_URI)
+mongoose.connect(MONGODB_URI, {
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  family: 4 // Use IPv4, skip trying IPv6
+})
   .then(() => {
     console.log('✅ MongoDB connected successfully');
     console.log('📊 Database:', mongoose.connection.db?.databaseName || 'Connecting...');
@@ -99,6 +180,11 @@ mongoose.connection.on('disconnected', () => {
 
 // Simple authentication check middleware (for testing)
 app.use((req, res, next) => {
+  // Log request info for debugging
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
+  }
+  
   // For testing/demo: Check for demo user header
   if (req.headers['x-demo-user']) {
     req.user = {
@@ -131,6 +217,10 @@ try {
         health: 'GET /health',
         books: 'GET /books',
         demoLogin: 'Use header: x-demo-user: any-id'
+      },
+      cors: {
+        enabled: true,
+        allowedOrigins: allowedOrigins.map(o => o.toString())
       }
     });
   });
@@ -166,7 +256,11 @@ app.get('/health', (req, res) => {
       status: statusMessages[dbStatus] || 'unknown',
       readyState: dbStatus
     },
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    cors: {
+      enabled: true,
+      allowedOrigins: allowedOrigins.map(o => o.toString())
+    }
   });
 });
 
@@ -228,6 +322,16 @@ app.get('/auth/demo/current', (req, res) => {
 // Global error handling middleware
 app.use((err, req, res, next) => {
   console.error('🔥 Global error handler:', err);
+  
+  // CORS errors
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      error: 'CORS Error',
+      message: `Origin ${req.headers.origin || 'unknown'} is not allowed`,
+      allowedOrigins: allowedOrigins.map(o => o.toString())
+    });
+  }
   
   // Session errors
   if (err.name === 'SessionError') {
@@ -305,7 +409,7 @@ const PORT = process.env.PORT || 3000;
 
 // Start server only if not in test mode
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log('\n' + '='.repeat(60));
     console.log('📚 Book Library API Server Started');
     console.log('='.repeat(60));
@@ -324,6 +428,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`🗄️  MongoDB Status: ${states[dbState] || 'unknown'}`);
     console.log(`🔐 Authentication: ${process.env.REQUIRE_AUTH === 'true' ? 'REQUIRED' : 'OPTIONAL'}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🌍 CORS Enabled for: ${allowedOrigins.map(o => o.toString()).join(', ')}`);
     
     // Demo instructions
     if (process.env.REQUIRE_AUTH !== 'true') {
